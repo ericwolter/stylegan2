@@ -19,6 +19,7 @@ import dnnlib.tflib as tflib
 class TFRecordDataset:
     def __init__(self,
         tfrecord_dir,               # Directory containing a collection of tfrecords files.
+        input_raw       = True,     # Use jpeg encoded dataset
         resolution      = None,     # Dataset resolution, None = autodetect.
         label_file      = None,     # Relative path of the labels file, None = autodetect.
         max_label_size  = 0,        # 0 = no labels, 'full' = full labels, <int> = N first label components.
@@ -30,6 +31,7 @@ class TFRecordDataset:
         num_threads     = 2):       # Number of concurrent threads.
 
         self.tfrecord_dir       = tfrecord_dir
+        self.input_raw          = input_raw
         self.resolution         = None
         self.resolution_log2    = None
         self.shape              = []        # [channels, height, width]
@@ -57,7 +59,10 @@ class TFRecordDataset:
         for tfr_file in tfr_files:
             tfr_opt = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.NONE)
             for record in tf.python_io.tf_record_iterator(tfr_file, tfr_opt):
-                tfr_shapes.append(self.parse_tfrecord_np(record).shape)
+                if input_raw:
+                    tfr_shapes.append(self.parse_tfrecord_shape_raw(record))
+                else:
+                    tfr_shapes.append(self.parse_tfrecord_shape(record))
                 break
 
         # Autodetect label filename.
@@ -105,7 +110,10 @@ class TFRecordDataset:
                 dset = tf.data.TFRecordDataset(tfr_file, compression_type='', buffer_size=buffer_mb<<20)
                 if max_images is not None:
                     dset = dset.take(max_images)
-                dset = dset.map(self.parse_tfrecord_tf, num_parallel_calls=num_threads)
+                if input_raw:
+                    dset = dset.map(self.parse_tfrecord_tf_raw, num_parallel_calls=num_threads)
+                else:
+                    dset = dset.map(self.parse_tfrecord_tf, num_parallel_calls=num_threads)
                 dset = tf.data.Dataset.zip((dset, self._tf_labels_dataset))
                 bytes_per_item = np.prod(tfr_shape) * np.dtype(self.dtype).itemsize
                 if shuffle_mb > 0:
@@ -166,14 +174,28 @@ class TFRecordDataset:
         data = tf.decode_raw(features['data'], tf.uint8)
         return tf.reshape(data, features['shape'])
 
+    @staticmethod
+    def parse_tfrecord_tf_raw(record):
+        features = tf.parse_single_example(record, features={
+            'shape': tf.FixedLenFeature([3], tf.int64),
+            'img': tf.FixedLenFeature([], tf.string)})
+        image = tf.image.decode_jpeg(features['img'])
+        return tf.transpose(image, [2, 0, 1])
+
     # Parse individual image from a tfrecords file into NumPy array.
     @staticmethod
-    def parse_tfrecord_np(record):
+    def parse_tfrecord_shape(record):
         ex = tf.train.Example()
         ex.ParseFromString(record)
         shape = ex.features.feature['shape'].int64_list.value # pylint: disable=no-member
-        data = ex.features.feature['data'].bytes_list.value[0] # pylint: disable=no-member
-        return np.fromstring(data, np.uint8).reshape(shape)
+        return shape
+
+    @staticmethod
+    def parse_tfrecord_shape_raw(record):
+        ex = tf.train.Example()
+        ex.ParseFromString(record)
+        shape = ex.features.feature['shape'].int64_list.value # pylint: disable=no-member
+        return shape
 
 #----------------------------------------------------------------------------
 # Helper func for constructing a dataset object using the given options.

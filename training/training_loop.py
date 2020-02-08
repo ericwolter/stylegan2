@@ -124,14 +124,27 @@ def training_loop(
     total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
     mirror_augment          = False,    # Enable mirror augment?
     drange_net              = [-1,1],   # Dynamic range used when feeding image data to the networks.
-    image_snapshot_ticks    = 50,       # How often to save image snapshots? None = only save 'reals.png' and 'fakes-init.png'.
-    network_snapshot_ticks  = 50,       # How often to save network snapshots? None = only save 'networks-final.pkl'.
+    image_snapshot_ticks    = 1,       # How often to save image snapshots? None = only save 'reals.png' and 'fakes-init.png'.
+    network_snapshot_ticks  = 4,       # How often to save network snapshots? None = only save 'networks-final.pkl'.
     save_tf_graph           = False,    # Include full TensorFlow computation graph in the tfevents file?
     save_weight_histograms  = False,    # Include weight histograms in the tfevents file?
     resume_pkl              = None,     # Network pickle to resume training from, None = train from scratch.
     resume_kimg             = 0.0,      # Assumed training progress at the beginning. Affects reporting and training schedule.
     resume_time             = 0.0,      # Assumed wallclock time at the beginning. Affects reporting.
     resume_with_new_nets    = False):   # Construct new networks according to G_args and D_args before resuming training?
+
+    print('G_args', G_args)
+    print('D_args', D_args)
+    print('G_opt_args', G_opt_args)
+    print('D_opt_args', D_opt_args)
+    print('G_loss_args', G_loss_args)
+    print('dataset_args', dataset_args)
+    print('sched_args', sched_args)
+    print('grid_args', grid_args)
+    print('metric_arg_list', metric_arg_list)
+    print('tf_config', tf_config)
+    print('image_snapshot_ticks', image_snapshot_ticks)
+    print('network_snapshot_ticks', network_snapshot_ticks)
 
     # Initialize dnnlib and TensorFlow.
     tflib.init_tf(tf_config)
@@ -144,6 +157,8 @@ def training_loop(
 
     # Construct or load networks.
     with tf.device('/gpu:0'):
+        if resume_pkl == 'latest':
+            resume_pkl, resume_kimg = misc.locate_latest_pkl(dnnlib.submit_config.run_dir_root)
         if resume_pkl is None or resume_with_new_nets:
             print('Constructing networks...')
             G = tflib.Network('G', num_channels=training_set.shape[0], resolution=training_set.shape[1], label_size=training_set.label_size, **G_args)
